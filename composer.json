@@ -1,5 +1,5 @@
 {
-    "name": "chrome-php/chrome",
+    "name": "ianef/chrome",
     "description": "Instrument headless chrome/chromium instances from PHP",
     "keywords": ["chrome", "chromium", "crawl", "browser", "headless", "screenshot", "pdf", "puppeteer"],
     "license": "MIT",
