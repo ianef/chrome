@@ -3,6 +3,7 @@
     "description": "Instrument headless chrome/chromium instances from PHP",
     "keywords": ["chrome", "chromium", "crawl", "browser", "headless", "screenshot", "pdf", "puppeteer"],
     "license": "MIT",
+    "version": "1.2.8",
     "authors": [
         {
             "name": "Graham Campbell",
