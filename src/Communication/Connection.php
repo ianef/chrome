@@ -86,6 +86,11 @@ class Connection extends EventEmitter implements LoggerAwareInterface
     protected $receivedData = [];
 
     /**
+     * @var array<string, string>
+     */
+    protected $httpHeaders = [];
+
+    /**
      * CommunicationChannel constructor.
      *
      * @param SocketInterface|string $socketClient
@@ -125,6 +130,24 @@ class Connection extends EventEmitter implements LoggerAwareInterface
     public function setConnectionDelay(int $delay): void
     {
         $this->delay = $delay;
+    }
+
+    /**
+     * @param array<string, string> $headers
+     *
+     * @return void
+     */
+    public function setConnectionHttpHeaders(array $headers): void
+    {
+        $this->httpHeaders = $headers;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function getConnectionHttpHeaders(): array
+    {
+        return $this->httpHeaders;
     }
 
     /**
@@ -189,7 +212,7 @@ class Connection extends EventEmitter implements LoggerAwareInterface
     private function waitForDelay(): void
     {
         if ($this->lastMessageSentTime) {
-            $currentTime = (int) (\microtime(true) * 1000);
+            $currentTime = (int) (\hrtime(true) / 1000 / 1000);
             // if not enough time was spent until last message was sent, wait
             if ($this->lastMessageSentTime + $this->delay > $currentTime) {
                 $timeToWait = ($this->lastMessageSentTime + $this->delay) - $currentTime;
@@ -197,7 +220,7 @@ class Connection extends EventEmitter implements LoggerAwareInterface
             }
         }
 
-        $this->lastMessageSentTime = (int) (\microtime(true) * 1000);
+        $this->lastMessageSentTime = (int) (\hrtime(true) / 1000 / 1000);
     }
 
     /**
@@ -244,7 +267,7 @@ class Connection extends EventEmitter implements LoggerAwareInterface
     public function sendMessageSync(Message $message, int $timeout = null): Response
     {
         $responseReader = $this->sendMessage($message);
-        $response = $responseReader->waitForResponse($timeout ?? $this->sendSyncDefaultTimeout);
+        $response = $responseReader->waitForResponse($timeout);
 
         return $response;
     }
@@ -252,19 +275,22 @@ class Connection extends EventEmitter implements LoggerAwareInterface
     /**
      * Create a session for the given target id.
      *
-     * @param string $targetId
+     * @param string  $targetId
+     * @param ?string $sessionId
      *
      * @return Session
      */
-    public function createSession($targetId): Session
+    public function createSession($targetId, $sessionId = null): Session
     {
-        $response = $this->sendMessageSync(
-            new Message('Target.attachToTarget', ['targetId' => $targetId])
-        );
-        if (empty($response['result'])) {
-            throw new TargetDestroyed('The target was destroyed.');
+        if (null === $sessionId) {
+            $response = $this->sendMessageSync(
+                new Message('Target.attachToTarget', ['targetId' => $targetId, 'flatten' => true])
+            );
+            if (empty($response['result'])) {
+                throw new TargetDestroyed('The target was destroyed.');
+            }
+            $sessionId = $response['result']['sessionId'];
         }
-        $sessionId = $response['result']['sessionId'];
         $session = new Session($targetId, $sessionId, $this);
 
         $this->sessions[$sessionId] = $session;
@@ -361,6 +387,9 @@ class Connection extends EventEmitter implements LoggerAwareInterface
 
                     return $this->dispatchMessage($response['params']['message'], $session);
                 } else {
+                    if (!$session && isset($response['sessionId'])) {
+                        $session = $this->sessions[$response['sessionId']] ?? null;
+                    }
                     if ($session) {
                         $this->logger->debug(
                             'session('.$session->getSessionId().'): ⇶ dispatching method:'.$response['method']
@@ -415,5 +444,15 @@ class Connection extends EventEmitter implements LoggerAwareInterface
         }
 
         return null;
+    }
+
+    /**
+     * @param string $sessionId
+     *
+     * @return bool
+     */
+    public function isSessionDestroyed($sessionId)
+    {
+        return !isset($this->sessions[$sessionId]);
     }
 }

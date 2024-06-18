@@ -17,8 +17,10 @@ use HeadlessChromium\Communication\Target;
 use HeadlessChromium\Cookies\Cookie;
 use HeadlessChromium\Cookies\CookiesCollection;
 use HeadlessChromium\Dom\Dom;
+use HeadlessChromium\Dom\Selector\CssSelector;
 use HeadlessChromium\Exception\CommunicationException;
 use HeadlessChromium\Exception\InvalidTimezoneId;
+use HeadlessChromium\Exception\JavascriptException;
 use HeadlessChromium\Exception\NoResponseAvailable;
 use HeadlessChromium\Exception\TargetDestroyed;
 use HeadlessChromium\Input\Keyboard;
@@ -148,10 +150,9 @@ class Page
     public function setBasicAuthHeader(string $username, string $password): void
     {
         $header = \base64_encode($username.':'.$password);
-        $this->getSession()->sendMessage(new Message(
-            'Network.setExtraHTTPHeaders',
-            ['headers' => ['Authorization' => 'Basic '.$header]]
-        ));
+        $this->setExtraHTTPHeaders([
+            'Authorization' => 'Basic '.$header,
+        ]);
     }
 
     /**
@@ -168,11 +169,34 @@ class Page
     }
 
     /**
+     * Set extra http headers.
+     *
+     * If headers are not passed, all instances of Page::class will use global settings from the BrowserFactory::class
+     *
+     * @see https://chromedevtools.github.io/devtools-protocol/1-2/Network/#method-setExtraHTTPHeaders
+     *
+     * @param array<string, string> $headers
+     *
+     * @throws CommunicationException
+     */
+    public function setExtraHTTPHeaders(array $headers = []): void
+    {
+        $response = $this->getSession()->sendMessage(new Message(
+            'Network.setExtraHTTPHeaders',
+            ['headers' => $headers]
+        ))->waitForResponse();
+
+        if (false === $response->isSuccessful()) {
+            throw new CommunicationException($response->getErrorMessage());
+        }
+    }
+
+    /**
      * @param string $url
      * @param array  $options
      *                        - strict: make waitForNAvigation to fail if a new navigation is initiated. Default: false
      *
-     * @throws Exception\CommunicationException
+     * @throws CommunicationException
      *
      * @return PageNavigation
      */
@@ -195,7 +219,7 @@ class Page
      *
      * @param string $expression
      *
-     * @throws Exception\CommunicationException
+     * @throws CommunicationException
      *
      * @return PageEvaluation
      */
@@ -382,8 +406,8 @@ class Page
     {
         $this->assertNotClosed();
 
-        if (!$loaderId) {
-            $loaderId = $loader = $this->frameManager->getMainFrame()->getLatestLoaderId();
+        if (null === $loaderId) {
+            $loaderId = $this->frameManager->getMainFrame()->getLatestLoaderId();
         }
 
         Utils::tryWithTimeout($timeout * 1000, $this->waitForReloadGenerator($eventName, $loaderId));
@@ -425,11 +449,50 @@ class Page
     }
 
     /**
-     * Get a clip that uses the full layout page, not only the viewport.
+     * Wait until page contains Node.
      *
-     * This method is synchronous
+     * @throws Exception\OperationTimedOut
+     */
+    public function waitUntilContainsElement(string $selectors, int $timeout = 30000): self
+    {
+        $this->assertNotClosed();
+
+        Utils::tryWithTimeout($timeout * 1000, $this->waitForElement($selectors));
+
+        return $this;
+    }
+
+    /**
+     * @return bool|\Generator
      *
-     * Fullpage screenshot exemple:
+     * @internal
+     */
+    public function waitForElement(string $selectors, int $position = 1)
+    {
+        $delay = 500;
+        $element = [];
+
+        while (true) {
+            try {
+                $element = Utils::getElementPositionFromPage($this, new CssSelector($selectors), $position);
+            } catch (JavascriptException $exception) {
+                yield $delay;
+            }
+
+            if (\array_key_exists('x', $element)) {
+                return true;
+            }
+
+            yield $delay;
+        }
+    }
+
+    /**
+     * Get a clip that uses the full screen layout (only the viewport).
+     *
+     * This method is synchronous.
+     *
+     * Full-screen screenshot example:
      *
      * ```php
      *     $page
@@ -445,7 +508,7 @@ class Page
      */
     public function getFullPageClip(int $timeout = null): Clip
     {
-        $contentSize = $this->getLayoutMetrics()->await($timeout)->getContentSize();
+        $contentSize = $this->getLayoutMetrics()->await($timeout)->getCssContentSize();
 
         return new Clip(0, 0, $contentSize['width'], $contentSize['height']);
     }
@@ -453,10 +516,58 @@ class Page
     /**
      * Take a screenshot.
      *
-     * Usage:
+     * Simple screenshot:
      *
      * ```php
      * $page->screenshot()->saveToFile('/tmp/image.jpg');
+     * ```
+     * --------------------------------------------------------------------------------
+     *
+     * Screenshot an area on a page:
+     *
+     * ```php
+     * use HeadlessChromium\Clip;
+     *
+     * // navigate
+     * $navigation = $page->navigate('http://example.com');
+     *
+     * // wait for the page to be loaded
+     * $navigation->waitForNavigation();
+     *
+     * // create a rectangle by specifying to left corner coordinates + width and height
+     * $x = 10;
+     * $y = 10;
+     * $width = 100;
+     * $height = 100;
+     * $clip = new Clip($x, $y, $width, $height);
+     *
+     * // take the screenshot (in memory binaries)
+     * $screenshot = $page->screenshot([
+     *     'clip'  => $clip,
+     * ]);
+     *
+     * // save the screenshot
+     * $screenshot->saveToFile('/some/place/file.jpg');
+     * ```
+     * --------------------------------------------------------------------------------
+     *
+     * Full-page screenshot (not only the viewport):
+     *
+     * ```php
+     * // navigate
+     * $navigation = $page->navigate('https://example.com');
+     *
+     * // wait for the page to be loaded
+     * $navigation->waitForNavigation();
+     *
+     * $screenshot = $page->screenshot([
+     *     'captureBeyondViewport' => true,
+     *     'clip' => $page->getFullPageClip(),
+     *     'format' => 'jpeg', // default to 'png' - possible values: 'png', 'jpeg',
+     * ]);
+     *
+     * // save the screenshot
+     * $screenshot->saveToFile('/some/place/file.jpg');
      * ```
      *
      * @param array $options
@@ -674,7 +785,7 @@ class Page
 
         $this->getSession()
             ->getConnection()
-            ->sendMessage(
+            ->sendMessageSync(
                 new Message(
                     'Target.closeTarget',
                     ['targetId' => $this->getSession()->getTargetId()]
@@ -742,15 +853,38 @@ class Page
     }
 
     /**
+     * Sets the raw html of the current page.
+     *
+     * @throws CommunicationException
+     */
+    public function setHtml(string $html, int $timeout = 3000, string $eventName = self::LOAD): void
+    {
+        $time = \hrtime(true) / 1000 / 1000;
+
+        $this->getSession()->sendMessageSync(
+            new Message(
+                'Page.setDocumentContent',
+                [
+                    'frameId' => $this->getFrameManager()->getMainFrame()->getFrameId(),
+                    'html' => $html,
+                ]
+            ),
+            $timeout
+        );
+
+        $timeout -= (int) \floor((\hrtime(true) / 1000 / 1000) - $time);
+
+        $this->waitForReload($eventName, \max(0, $timeout), '');
+    }
+
+    /**
      * Gets the raw html of the current page.
      *
-     * @throws Exception\CommunicationException
-     *
-     * @return string
+     * @throws CommunicationException
      */
-    public function getHtml()
+    public function getHtml(?int $timeout = null): string
     {
-        return $this->evaluate('document.documentElement.outerHTML')->getReturnValue();
+        return $this->evaluate('document.documentElement.outerHTML')->getReturnValue($timeout);
     }
 
     /**

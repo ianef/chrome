@@ -109,8 +109,7 @@ class ResponseReader
             return $this->getResponse();
         }
 
-        // default 2000ms
-        $timeout = $timeout ?? 2000;
+        $timeout = $timeout ?? $this->connection->getSendSyncDefaultTimeout();
 
         return Utils::tryWithTimeout($timeout * 1000, $this->waitForResponseGenerator());
     }
@@ -176,6 +175,11 @@ class ResponseReader
             $this->response = new Response($this->connection->getResponseForId($id), $this->message);
 
             return true;
+        }
+
+        // check if the session was destroyed in the mean time
+        if (null !== $this->message->getSessionId() && $this->connection->isSessionDestroyed($this->message->getSessionId())) {
+            throw new \HeadlessChromium\Exception\TargetDestroyed('The session is destroyed.');
         }
 
         return false;

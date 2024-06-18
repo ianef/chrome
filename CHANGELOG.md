@@ -1,6 +1,102 @@
 # CHANGELOG
 
 
+## 1.8.1 (2023-03-11)
+
+* Fixed issue where Chrome 111 and later have different default allowed origins
+
+
+## 1.8.0 (2023-02-27)
+
+* Add helper function to find target
+* Add `--crash-dumps-dir` option
+* Allow passing the event name to wait for in `setHtml`
+* Dropped PHP 7.3 support
+
+
+## 1.7.2 (2023-02-27)
+
+* Fix case where the timeout in `setHtml()` isn't respected
+* Fix hard coded timeout in `Dom` class
+* Fix hard coded timeout in `ResponseReader` class
+* Stop process when an error occurs during startup
+* Stop process on `waitForStartup` if dev tools failed to start
+* Disconnect socket on `sendCloseMessage`
+
+
+## 1.7.1 (2022-09-04)
+
+* Fix command execution in `AutoDiscover`
+
+
+## 1.7.0 (2022-08-28)
+
+* Use `command` to guess the chrome executable in Linux
+* Officially support PHP 8.2
+* Fix extra HTTP headers
+
+
+## 1.6.2 (2022-08-28)
+
+* Fix intermittency in `Mouse::findElement()`
+* Fix scroll with values higher than possible
+
+
+## 1.6.1 (2022-05-17)
+
+* Support Monolog 3
+
+
+## 1.6.0 (2022-03-30)
+
+* Officially support PHP 8.1
+
+
+## 1.5.0 (2022-03-25)
+
+* Added `Browser::getPages` method
+* Added `Page::waitUntilContainsElement()` method
+* Added `Page::setHtml()` method
+* Added support for XPath by introducing `Selector`
+* Added `Mouse::findElement()` method
+* Switch to flatten mode
+
+
+## 1.4.1 (2022-03-25)
+
+* Added fallback to css layout metrics
+* Added missing destroyed setting
+* Prevent `Node::querySelector` from returning nodeId `0`
+* Fixed "What's new" page opening on startup
+* More fixes to enable eventual PHP 8.1 support
+
+
+## 1.4.0 (2022-01-23)
+
+* Added support for `--no-proxy-server` and `--proxy-bypass-list`
+* Added timeout option to `Page::getHtml`
+* Added `Node::sendFiles` method
+
+
+## 1.3.1 (2022-01-23)
+
+* Fixed issues with `Keyboard::typeText` with multibyte strings
+* Fixed issues with retina and scaled displays
+* Fixed issues with timeouts if system time changes
+* Fixed `Mouse::find()` after cursor has moved
+
+
+## 1.3.0 (2021-12-07)
+
+* Added support for setting HTTP headers
+* Added support for `psr/log` 2 and 3
+
+
+## 1.2.1 (2021-12-07)
+
+* Partial PHP 8.1 support
+
+
 ## 1.2.0 (2021-11-20)
 
 * Dropped `--disable-default-apps` and `--disable-extensions` by default

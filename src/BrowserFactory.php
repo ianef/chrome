@@ -11,17 +11,42 @@
 
 namespace HeadlessChromium;
 
-use Apix\Log\Logger\Stream as StreamLogger;
 use HeadlessChromium\Browser\BrowserProcess;
 use HeadlessChromium\Browser\ProcessAwareBrowser;
 use HeadlessChromium\Communication\Connection;
 use HeadlessChromium\Exception\BrowserConnectionFailed;
-use Symfony\Component\Process\Process;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Wrench\Exception\HandshakeException;
 
 class BrowserFactory
 {
     protected $chromeBinary;
+
+    /**
+     * Options for browser creation.
+     *
+     * - connectionDelay: Delay to apply between each operation for debugging purposes (default: none)
+     * - customFlags: An array of flags to pass to the command line.
+     * - debugLogger: A string (e.g "php://stdout"), or resource, or PSR-3 logger instance to print debug messages (default: none)
+     * - enableImages: Toggles loading of images (default: true)
+     * - envVariables: An array of environment variables to pass to the process (example DISPLAY variable)
+     * - headers: An array of custom HTTP headers
+     * - headless: Enable or disable headless mode (default: true)
+     * - ignoreCertificateErrors: Set chrome to ignore ssl errors
+     * - keepAlive: Set to `true` to keep alive the chrome instance when the script terminates (default: false)
+     * - noSandbox: Enable no sandbox mode, useful to run in a docker container (default: false)
+     * - proxyServer: Proxy server to use. ex: `127.0.0.1:8080` (default: none)
+     * - sendSyncDefaultTimeout: Default timeout (ms) for sending sync messages (default 5000 ms)
+     * - startupTimeout: Maximum time in seconds to wait for chrome to start (default: 30 sec)
+     * - userAgent: User agent to use for the whole browser
+     * - userDataDir: Chrome user data dir (default: a new empty dir is generated temporarily)
+     * - userCrashDumpsDir: The directory crashpad should store dumps in (crash reporter will be enabled automatically)
+     * - windowSize: Size of the window. ex: `[1920, 1080]` (default: none)
+     */
+    protected $options = [];
 
     public function __construct(string $chromeBinary = null)
     {
@@ -31,27 +56,16 @@ class BrowserFactory
     /**
      * Start a chrome process and allows to interact with it.
      *
-     * @param array $options options for browser creation:
-     *                       - connectionDelay: amount of time in seconds to slows down connection for debugging purposes (default: none)
-     *                       - customFlags: array of custom flag to flags to pass to the command line
-     *                       - debugLogger: resource string ("php://stdout"), resource or psr-3 logger instance (default: none)
-     *                       - enableImages: toggle the loading of images (default: true)
-     *                       - envVariables: array of environment variables to pass to the process (example DISPLAY variable)
-     *                       - headless: whether chrome should be started headless (default: true)
-     *                       - ignoreCertificateErrors: set chrome to ignore ssl errors
-     *                       - keepAlive: true to keep alive the chrome instance when the script terminates (default: false)
-     *                       - noSandbox: enable no sandbox mode (default: false)
-     *                       - proxyServer: a proxy server, ex: 127.0.0.1:8080 (default: none)
-     *                       - sendSyncDefaultTimeout: maximum time in ms to wait for synchronous messages to send (default 5000 ms)
-     *                       - startupTimeout: maximum time in seconds to wait for chrome to start (default: 30 sec)
-     *                       - userAgent: user agent to use for the browser
-     *                       - userDataDir: chrome user data dir (default: a new empty dir is generated temporarily)
-     *                       - windowSize: size of the window, ex: [1920, 1080] (default: none)
+     * @see BrowserFactory::$options
+     *
+     * @param array|null $options overwrite options for browser creation
      *
      * @return ProcessAwareBrowser a Browser instance to interact with the new chrome process
      */
-    public function createBrowser(array $options = []): ProcessAwareBrowser
+    public function createBrowser(?array $options = null): ProcessAwareBrowser
     {
+        $options = $options ?? $this->options;
+
         // create logger from options
         $logger = self::createLogger($options);
 
@@ -67,6 +81,21 @@ class BrowserFactory
         $browserProcess->start($this->chromeBinary, $options);
 
         return $browserProcess->getBrowser();
+    }
+
+    public function addHeader(string $name, string $value): void
+    {
+        $this->options['headers'][$name] = $value;
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    public function addHeaders(array $headers): void
+    {
+        foreach ($headers as $name => $value) {
+            $this->addHeader($name, $value);
+        }
     }
 
     /**
@@ -125,22 +154,48 @@ class BrowserFactory
     }
 
     /**
-     * Create a logger instance from given options.
+     * Set default options to be used in all browser instances.
      *
-     * @param array $options
-     *
-     * @return StreamLogger|null
+     * @see BrowserFactory::$options
      */
-    private static function createLogger($options)
+    public function setOptions(array $options): void
     {
-        // prepare logger
+        $this->options = $options;
+    }
+
+    /**
+     * Add or overwrite options to the default options list.
+     *
+     * @see BrowserFactory::$options
+     */
+    public function addOptions(array $options): void
+    {
+        $this->options = \array_merge($this->options, $options);
+    }
+
+    public function getOptions(): array
+    {
+        return $this->options;
+    }
+
+    /**
+     * Create a logger instance from given options.
+     */
+    private static function createLogger(array $options): LoggerInterface
+    {
         $logger = $options['debugLogger'] ?? null;
 
-        // create logger from string name or resource
-        if (\is_string($logger) || \is_resource($logger)) {
-            $logger = new StreamLogger($logger);
+        if ($logger instanceof LoggerInterface) {
+            return $logger;
         }
 
-        return $logger;
+        if (\is_string($logger) || \is_resource($logger)) {
+            $log = new Logger('chrome');
+            $log->pushHandler(new StreamHandler($logger));
+
+            return $log;
+        }
+
+        return new NullLogger();
     }
 }

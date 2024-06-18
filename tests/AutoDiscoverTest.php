@@ -18,13 +18,15 @@ use HeadlessChromium\AutoDiscover;
  */
 class AutoDiscoverTest extends BaseTestCase
 {
-    private $originalEnvPath = null;
+    private ?string $originalEnvPath = null;
 
     protected function setUp(): void
     {
-        $this->originalEnvPath = null ?? $_SERVER['CHROME_PATH'];
+        if (\array_key_exists('CHROME_PATH', $_SERVER)) {
+            $this->originalEnvPath = $_SERVER['CHROME_PATH'];
 
-        unset($_SERVER['CHROME_PATH']);
+            unset($_SERVER['CHROME_PATH']);
+        }
 
         parent::setUp();
     }
@@ -46,7 +48,7 @@ class AutoDiscoverTest extends BaseTestCase
 
         $_SERVER['CHROME_PATH'] = 'test-path';
 
-        $this->assertSame($_SERVER['CHROME_PATH'], $autoDiscover->guessChromeBinaryPath());
+        self::assertSame($_SERVER['CHROME_PATH'], $autoDiscover->guessChromeBinaryPath());
     }
 
     public function testLinux(): void
@@ -55,7 +57,13 @@ class AutoDiscoverTest extends BaseTestCase
             return 'Linux';
         });
 
-        $this->assertSame('chrome', $autoDiscover->guessChromeBinaryPath());
+        self::assertThat(
+            $autoDiscover->guessChromeBinaryPath(),
+            $this->logicalOr(
+                'chrome',
+                'google-chrome'
+            )
+        );
     }
 
     public function testMac(): void
@@ -64,7 +72,7 @@ class AutoDiscoverTest extends BaseTestCase
             return 'Darwin';
         });
 
-        $this->assertStringContainsString('.app', $autoDiscover->guessChromeBinaryPath());
+        self::assertStringContainsString('.app', $autoDiscover->guessChromeBinaryPath());
     }
 
     public function testWindows(): void
@@ -73,6 +81,6 @@ class AutoDiscoverTest extends BaseTestCase
             return 'Windows';
         });
 
-        $this->assertStringContainsString('.exe', $autoDiscover->guessChromeBinaryPath());
+        self::assertStringContainsString('.exe', $autoDiscover->guessChromeBinaryPath());
     }
 }

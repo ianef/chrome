@@ -19,10 +19,7 @@ use HeadlessChromium\BrowserFactory;
  */
 class KeyboardApiTest extends BaseTestCase
 {
-    /**
-     * @var Browser\ProcessAwareBrowser
-     */
-    public static $browser;
+    public static Browser\ProcessAwareBrowser $browser;
 
     public static function setUpBeforeClass(): void
     {
@@ -63,7 +60,7 @@ class KeyboardApiTest extends BaseTestCase
             ->getReturnValue();
 
         // checks if the input contains the typed text
-        $this->assertEquals('bar', $value);
+        self::assertEquals('bar', $value);
     }
 
     /**
@@ -80,7 +77,7 @@ class KeyboardApiTest extends BaseTestCase
             ->evaluate('document.activeElement === document.querySelector("#myinput");')
             ->getReturnValue();
 
-        $this->assertFalse($value);
+        self::assertFalse($value);
 
         // press the Tab key
         $page->keyboard()->typeRawKey('Tab');
@@ -90,7 +87,7 @@ class KeyboardApiTest extends BaseTestCase
             ->evaluate('document.activeElement === document.querySelector("#myinput");')
             ->getReturnValue();
 
-        $this->assertTrue($value);
+        self::assertTrue($value);
     }
 
     /**
@@ -128,7 +125,7 @@ class KeyboardApiTest extends BaseTestCase
             ->getReturnValue();
 
         // check if the input contains the typed text twice
-        $this->assertEquals($text.$text, $value);
+        self::assertEquals($text.$text, $value);
     }
 
     /**
@@ -145,7 +142,7 @@ class KeyboardApiTest extends BaseTestCase
             ->press('b')
             ->release();
 
-        $this->assertEquals(0, \count($page->keyboard()->getPressedKeys()));
+        self::assertEquals(0, \count($page->keyboard()->getPressedKeys()));
     }
 
     /**
@@ -157,16 +154,40 @@ class KeyboardApiTest extends BaseTestCase
         // initial navigation
         $page = $this->openSitePage('form.html');
 
-        $start = \round(\microtime(true) * 1000);
+        $start = \round(\hrtime(true) / 1000 / 1000);
 
         $page->keyboard()
             ->setKeyInterval(100)
             ->typeRawKey('Tab')
             ->typeText('bar');
 
-        $millisecondsElapsed = \round(\microtime(true) * 1000) - $start;
+        $millisecondsElapsed = \round(\hrtime(true) / 1000 / 1000) - $start;
 
         // if this test takes less than 300ms to run (3 keys x 100ms), setKeyInterval is not working
-        $this->assertGreaterThan(300, $millisecondsElapsed);
+        self::assertGreaterThan(300, $millisecondsElapsed);
+    }
+
+    /**
+     * @throws \HeadlessChromium\Exception\CommunicationException
+     * @throws \HeadlessChromium\Exception\NoResponseAvailable
+     * @throws \HeadlessChromium\Exception\CommunicationException\InvalidResponse
+     */
+    public function testTypeUnicodeText(): void
+    {
+        // initial navigation
+        $page = $this->openSitePage('form.html');
+
+        $text = 'Со ГӀалгӀа ва';
+
+        $page->keyboard()
+            ->type('Tab')
+            ->typeText($text);
+
+        $value = $page
+            ->evaluate('document.querySelector("#myinput").value;')
+            ->getReturnValue();
+
+        // checks if the input contains the typed text
+        self::assertSame($text, $value);
     }
 }

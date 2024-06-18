@@ -64,7 +64,7 @@ class Node
 
         $nodeId = $response->getResultData('nodeId');
 
-        if (null !== $nodeId) {
+        if (null !== $nodeId && 0 !== $nodeId) {
             return new self($this->page, $nodeId);
         }
 
@@ -180,8 +180,13 @@ class Node
 
     public function sendFile(string $filePath): void
     {
+        $this->sendFiles([$filePath]);
+    }
+
+    public function sendFiles(array $filePaths): void
+    {
         $message = new Message('DOM.setFileInputFiles', [
-            'files' => [$filePath],
+            'files' => $filePaths,
             'nodeId' => $this->nodeId,
         ]);
         $response = $this->page->getSession()->sendMessageSync($message);

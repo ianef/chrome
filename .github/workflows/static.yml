@@ -7,7 +7,7 @@ on:
 jobs:
   phpstan:
     name: PHPStan
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Code
@@ -16,7 +16,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '7.3'
+          php-version: '7.4'
           tools: composer:v2
           coverage: none
 

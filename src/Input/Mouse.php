@@ -12,6 +12,8 @@
 namespace HeadlessChromium\Input;
 
 use HeadlessChromium\Communication\Message;
+use HeadlessChromium\Dom\Selector\CssSelector;
+use HeadlessChromium\Dom\Selector\Selector;
 use HeadlessChromium\Exception\ElementNotFoundException;
 use HeadlessChromium\Exception\JavascriptException;
 use HeadlessChromium\Page;
@@ -144,7 +146,7 @@ class Mouse
      */
     public function scrollUp(int $distance)
     {
-        return $this->scroll((-1 * \abs($distance)));
+        return $this->scroll(-1 * \abs($distance));
     }
 
     /**
@@ -178,11 +180,14 @@ class Mouse
     {
         $this->page->assertNotClosed();
 
-        $scollableArea = $this->page->getLayoutMetrics()->getContentSize();
-        $visibleArea = $this->page->getLayoutMetrics()->getVisualViewport();
+        $scrollableArea = $this->page->getLayoutMetrics()->getCssContentSize();
+        $visibleArea = $this->page->getLayoutMetrics()->getCssVisualViewport();
 
-        $distanceX = $this->getMaximumDistance($distanceX, $visibleArea['pageX'], $scollableArea['width']);
-        $distanceY = $this->getMaximumDistance($distanceY, $visibleArea['pageY'], $scollableArea['height']);
+        $maximumX = $scrollableArea['width'] - $visibleArea['clientWidth'];
+        $maximumY = $scrollableArea['height'] - $visibleArea['clientHeight'];
+
+        $distanceX = $this->getMaximumDistance($distanceX, $visibleArea['pageX'], $maximumX);
+        $distanceY = $this->getMaximumDistance($distanceY, $visibleArea['pageY'], $maximumY);
 
         $targetX = $visibleArea['pageX'] + $distanceX;
         $targetY = $visibleArea['pageY'] + $distanceY;
@@ -218,11 +223,11 @@ class Mouse
      * @param int $right  The element right boundary
      * @param int $bottom The element bottom boundary
      *
-     * @return self
+     * @return $this
      */
     private function scrollToBoundary(int $right, int $bottom): self
     {
-        $visibleArea = $this->page->getLayoutMetrics()->getLayoutViewport();
+        $visibleArea = $this->page->getLayoutMetrics()->getCssLayoutViewport();
 
         $distanceX = $distanceY = 0;
 
@@ -261,38 +266,62 @@ class Mouse
      */
     public function find(string $selectors, int $position = 1): self
     {
+        $this->findElement(new CssSelector($selectors), $position);
+
+        return $this;
+    }
+
+    /**
+     * Find an element and move the mouse to a random position over it.
+     *
+     * The search could result in several elements. The $position param can be used to select a specific element.
+     * The given position can only be between 1 and the maximum number or elements. It will be adjusted to the
+     * minimum and maximum values if needed.
+     *
+     * Example:
+     * $page->mouse()->findElement(new CssSelector('#a')):
+     * $page->mouse()->findElement(new CssSelector('.a'), 2);
+     * $page->mouse()->findElement(new XPathSelector('//*[@id="a"]'), 2);
+     *
+     * @param Selector $selector selector to use
+     * @param int      $position (optional) which element of the result set should be used
+     *
+     * @throws \HeadlessChromium\Exception\CommunicationException
+     * @throws \HeadlessChromium\Exception\NoResponseAvailable
+     * @throws \HeadlessChromium\Exception\ElementNotFoundException
+     *
+     * @return $this
+     */
+    public function findElement(Selector $selector, int $position = 1): self
+    {
         $this->page->assertNotClosed();
 
         try {
-            $elementList = $this->page
-                ->evaluate('JSON.parse(JSON.stringify(document.querySelectorAll("'.$selectors.'")));')
-                ->getReturnValue();
-
-            $position = \max(0, ($position - 1));
-            $position = \min($position, (\count($elementList) - 1));
-
-            $element = $this->page
-                ->evaluate('JSON.parse(JSON.stringify(document.querySelectorAll("'.$selectors.'")['.$position.'].getBoundingClientRect()));')
-                ->getReturnValue();
+            $element = Utils::getElementPositionFromPage($this->page, $selector, $position);
         } catch (JavascriptException $exception) {
-            throw new ElementNotFoundException('The search for "'.$selectors.'" returned no elements.');
+            throw new ElementNotFoundException('The search for "'.$selector->expressionCount().'" returned no result.');
         }
 
         if (false === \array_key_exists('x', $element)) {
-            throw new ElementNotFoundException('The search for "'.$selectors.'" returned an element with no position.');
+            throw new ElementNotFoundException('The search for "'.$selector->expressionFindOne($position).'" returned an element with no position.');
         }
 
         $rightBoundary = \floor($element['right']);
         $bottomBoundary = \floor($element['bottom']);
 
-        $positionX = \mt_rand(\ceil($element['left']), $rightBoundary);
-        $positionY = \mt_rand(\ceil($element['top']), $bottomBoundary);
+        $this->scrollToBoundary($rightBoundary, $bottomBoundary);
 
-        $this->scrollToBoundary($rightBoundary, $bottomBoundary)
-            ->move(
-                ($positionX - $this->x),
-                ($positionY - $this->y)
-            );
+        $visibleArea = $this->page->getLayoutMetrics()->getLayoutViewport();
+
+        $offsetX = $visibleArea['pageX'];
+        $offsetY = $visibleArea['pageY'];
+        $minX = $element['left'] - $offsetX;
+        $minY = $element['top'] - $offsetY;
+
+        $positionX = \floor($minX + (($rightBoundary - $offsetX) - $minX) / 2);
+        $positionY = \ceil($minY + (($bottomBoundary - $offsetY) - $minY) / 2);
+
+        $this->move($positionX, $positionY);
 
         return $this;
     }
@@ -302,7 +331,7 @@ class Mouse
      *
      * @param int $distance Distance to scroll, positive or negative
      * @param int $current  Current position
-     * @param int $maximum  Maximum posible distance
+     * @param int $maximum  Maximum possible distance
      *
      * @return int allowed distance to scroll
      */
@@ -338,7 +367,7 @@ class Mouse
     private function waitForScroll(int $targetX, int $targetY)
     {
         while (true) {
-            $visibleArea = $this->page->getLayoutMetrics()->getVisualViewport();
+            $visibleArea = $this->page->getLayoutMetrics()->getCssVisualViewport();
 
             if ($visibleArea['pageX'] === $targetX && $visibleArea['pageY'] === $targetY) {
                 return true;
