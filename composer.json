@@ -1,7 +1,6 @@
 {
     "name": "ianef/chrome",
     "description": "Instrument headless chrome/chromium instances from PHP",
-    "version": "1.3",
     "keywords": ["chrome", "chromium", "crawl", "browser", "headless", "screenshot", "pdf", "puppeteer"],
     "license": "MIT",
     "authors": [
