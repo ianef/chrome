@@ -17,9 +17,15 @@ use HeadlessChromium\Communication\Target;
 use HeadlessChromium\Cookies\Cookie;
 use HeadlessChromium\Cookies\CookiesCollection;
 use HeadlessChromium\Dom\Dom;
+use HeadlessChromium\Dom\Node;
+use HeadlessChromium\Dom\Selector\CssSelector;
+use HeadlessChromium\Dom\Selector\Selector;
 use HeadlessChromium\Exception\CommunicationException;
+use HeadlessChromium\Exception\EvaluationFailed;
 use HeadlessChromium\Exception\InvalidTimezoneId;
+use HeadlessChromium\Exception\JavascriptException;
 use HeadlessChromium\Exception\NoResponseAvailable;
+use HeadlessChromium\Exception\OperationTimedOut;
 use HeadlessChromium\Exception\TargetDestroyed;
 use HeadlessChromium\Input\Keyboard;
 use HeadlessChromium\Input\Mouse;
@@ -34,8 +40,16 @@ use HeadlessChromium\PageUtils\ResponseWaiter;
 class Page
 {
     public const DOM_CONTENT_LOADED = 'DOMContentLoaded';
+    public const FIRST_CONTENTFUL_PAINT = 'firstContentfulPaint';
+    public const FIRST_IMAGE_PAINT = 'firstImagePaint';
+    public const FIRST_MEANINGFUL_PAINT = 'firstMeaningfulPaint';
+    public const FIRST_PAINT = 'firstPaint';
+    public const INIT = 'init';
+    public const INTERACTIVE_TIME = 'InteractiveTime';
     public const LOAD = 'load';
     public const NETWORK_IDLE = 'networkIdle';
+
+    private const MAX_COOKIE_AGE = 60 * 60 * 24 * 365;
 
     /**
      * @var Target
@@ -56,6 +70,11 @@ class Page
      * @var Keyboard|null
      */
     protected $keyboard;
+
+    /**
+     * @var Dom|null
+     */
+    protected $dom = null;
 
     /**
      * Page constructor.
@@ -174,13 +193,19 @@ class Page
      * @see https://chromedevtools.github.io/devtools-protocol/1-2/Network/#method-setExtraHTTPHeaders
      *
      * @param array<string, string> $headers
+     *
+     * @throws CommunicationException
      */
     public function setExtraHTTPHeaders(array $headers = []): void
     {
-        $this->getSession()->sendMessage(new Message(
+        $response = $this->getSession()->sendMessage(new Message(
             'Network.setExtraHTTPHeaders',
-            $headers
-        ));
+            ['headers' => $headers]
+        ))->waitForResponse();
+
+        if (false === $response->isSuccessful()) {
+            throw new CommunicationException($response->getErrorMessage());
+        }
     }
 
     /**
@@ -188,7 +213,7 @@ class Page
      * @param array  $options
      *                        - strict: make waitForNAvigation to fail if a new navigation is initiated. Default: false
      *
-     * @throws Exception\CommunicationException
+     * @throws CommunicationException
      *
      * @return PageNavigation
      */
@@ -211,7 +236,7 @@ class Page
      *
      * @param string $expression
      *
-     * @throws Exception\CommunicationException
+     * @throws CommunicationException
      *
      * @return PageEvaluation
      */
@@ -398,8 +423,8 @@ class Page
     {
         $this->assertNotClosed();
 
-        if (!$loaderId) {
-            $loaderId = $loader = $this->frameManager->getMainFrame()->getLatestLoaderId();
+        if (null === $loaderId) {
+            $loaderId = $this->frameManager->getMainFrame()->getLatestLoaderId();
         }
 
         Utils::tryWithTimeout($timeout * 1000, $this->waitForReloadGenerator($eventName, $loaderId));
@@ -431,12 +456,68 @@ class Page
 
                 yield $delay;
 
-            // else if frame has still the previous loader, wait for the new one
+                // else if frame has still the previous loader, wait for the new one
             } else {
                 yield $delay;
             }
 
             $this->getSession()->getConnection()->readData();
+        }
+    }
+
+    /**
+     * Wait until page contains Node.
+     *
+     * @param string|Selector $selectors
+     * @param int             $timeout
+     *
+     * @throws CommunicationException
+     * @throws EvaluationFailed
+     * @throws OperationTimedOut
+     *
+     * @return Page
+     */
+    public function waitUntilContainsElement($selectors, int $timeout = 30000): self
+    {
+        $this->assertNotClosed();
+
+        Utils::tryWithTimeout($timeout * 1000, $this->waitForElement($selectors));
+
+        return $this;
+    }
+
+    /**
+     * @param string|Selector $selectors
+     * @param int             $position
+     *
+     * @throws CommunicationException
+     * @throws EvaluationFailed
+     *
+     * @return bool|\Generator
+     *
+     * @internal
+     */
+    public function waitForElement($selectors, int $position = 1)
+    {
+        if (!($selectors instanceof Selector)) {
+            $selectors = new CssSelector($selectors);
+        }
+
+        $delay = 500;
+        $element = [];
+
+        while (true) {
+            try {
+                $element = Utils::getElementPositionFromPage($this, $selectors, $position);
+            } catch (JavascriptException $exception) {
+                yield $delay;
+            }
+
+            if (\array_key_exists('x', $element)) {
+                return true;
+            }
+
+            yield $delay;
         }
     }
 
@@ -459,7 +540,7 @@ class Page
      *
      * @return Clip
      */
-    public function getFullPageClip(int $timeout = null): Clip
+    public function getFullPageClip(?int $timeout = null): Clip
     {
         $contentSize = $this->getLayoutMetrics()->await($timeout)->getCssContentSize();
 
@@ -516,7 +597,8 @@ class Page
      * $screenshot = $page->screenshot([
      *     'captureBeyondViewport' => true,
      *     'clip' => $page->getFullPageClip(),
-     *     'format' => 'jpeg', // default to 'png' - possible values: 'png', 'jpeg',
+     *     'format' => 'jpeg', // default to 'png' - possible values: 'png', 'jpeg', 'webp'
+     *     'optimizeForSpeed' => true, // default to false - Optimize image encoding for speed, not for resulting size
      * ]);
      *
      * // save the screenshot
@@ -551,15 +633,15 @@ class Page
         }
 
         // make sure format is valid
-        if (!\in_array($screenshotOptions['format'], ['png', 'jpeg'])) {
-            throw new \InvalidArgumentException('Invalid options "format" for page screenshot. Format must be "png" or "jpeg".');
+        if (!\in_array($screenshotOptions['format'], ['png', 'jpeg', 'webp'])) {
+            throw new \InvalidArgumentException('Invalid options "format" for page screenshot. Format must be "png", "jpeg" or "webp".');
         }
 
         // get quality
         if (\array_key_exists('quality', $options)) {
-            // quality requires type to be jpeg
-            if ('jpeg' !== $screenshotOptions['format']) {
-                throw new \InvalidArgumentException('Invalid options "quality" for page screenshot. Quality requires the image format to be "jpeg".');
+            // quality requires type to be jpeg or webp
+            if (!\in_array($screenshotOptions['format'], ['jpeg', 'webp'])) {
+                throw new \InvalidArgumentException('Invalid options "quality" for page screenshot. Quality requires the image format to be "jpeg" or "webp".');
             }
 
             // quality must be an integer
@@ -593,11 +675,27 @@ class Page
             ];
         }
 
+        // optimize for speed
+        if (\array_key_exists('optimizeForSpeed', $options)) {
+            if (!\is_bool($options['optimizeForSpeed'])) {
+                throw new \InvalidArgumentException('Invalid options "optimizeForSpeed" for page screenshot. OptimizeForSpeed must be a boolean value.');
+            }
+
+            $screenshotOptions['optimizeForSpeed'] = $options['optimizeForSpeed'];
+        }
+
         // request screenshot
         $responseReader = $this->getSession()
             ->sendMessage(new Message('Page.captureScreenshot', $screenshotOptions));
 
         return new PageScreenshot($responseReader);
+    }
+
+    public function screenshotElement(Node $node): PageScreenshot
+    {
+        return $this->screenshot([
+            'clip' => $node->getClip(),
+        ]);
     }
 
     /**
@@ -724,7 +822,13 @@ class Page
 
     public function dom(): Dom
     {
-        return new Dom($this);
+        $this->assertNotClosed();
+
+        if (null === $this->dom) {
+            $this->dom = new Dom($this);
+        }
+
+        return $this->dom;
     }
 
     /**
@@ -738,7 +842,7 @@ class Page
 
         $this->getSession()
             ->getConnection()
-            ->sendMessage(
+            ->sendMessageSync(
                 new Message(
                     'Target.closeTarget',
                     ['targetId' => $this->getSession()->getTargetId()]
@@ -759,7 +863,7 @@ class Page
     }
 
     /**
-     * Set user agent for the current page.
+     * Set timezone for the current page.
      *
      * @see https://source.chromium.org/chromium/chromium/deps/icu.git/+/faee8bc70570192d82d2978a71e2a615788597d1:source/data/misc/metaZones.txt | ICU’s metaZones.txt
      *
@@ -806,15 +910,48 @@ class Page
     }
 
     /**
+     * Sets the raw html of the current page.
+     *
+     * @throws CommunicationException
+     */
+    public function setHtml(string $html, int $timeout = 3000, string $eventName = self::LOAD): void
+    {
+        $time = \hrtime(true) / 1000 / 1000;
+
+        $this->getSession()->sendMessageSync(
+            new Message(
+                'Page.setDocumentContent',
+                [
+                    'frameId' => $this->getFrameManager()->getMainFrame()->getFrameId(),
+                    'html' => $html,
+                ]
+            ),
+            $timeout
+        );
+
+        $timeout -= (int) \floor((\hrtime(true) / 1000 / 1000) - $time);
+
+        $this->waitForReload($eventName, \max(0, $timeout), '');
+    }
+
+    /**
      * Gets the raw html of the current page.
      *
-     * @throws Exception\CommunicationException
-     *
-     * @return string
+     * @throws CommunicationException
+     * @throws JavascriptException
      */
-    public function getHtml()
+    public function getHtml(?int $timeout = null): string
     {
-        return $this->evaluate('document.documentElement.outerHTML')->getReturnValue();
+        try {
+            return $this->evaluate('document.documentElement.outerHTML')->getReturnValue($timeout);
+        } catch (JavascriptException $e) {
+            if (0 === \strpos($e->getMessage(), 'Error during javascript evaluation: TypeError: Cannot read properties of null (reading \'outerHTML\')')) {
+                \usleep(1000);
+
+                return $this->evaluate('document.documentElement.outerHTML')->getReturnValue($timeout);
+            }
+            throw $e;
+        }
     }
 
     /**
@@ -897,7 +1034,7 @@ class Page
      *
      * @return CookiesCollection
      */
-    public function getCookies(int $timeout = null)
+    public function getCookies(?int $timeout = null)
     {
         return $this->readCookies()->await($timeout)->getCookies();
     }
@@ -917,7 +1054,7 @@ class Page
      *
      * @return CookiesCollection
      */
-    public function getAllCookies(int $timeout = null)
+    public function getAllCookies(?int $timeout = null)
     {
         return $this->readAllCookies()->await($timeout)->getCookies();
     }
@@ -951,6 +1088,11 @@ class Page
                 $browserCookie['domain'] = \parse_url($this->getCurrentUrl(), \PHP_URL_HOST);
             }
 
+            // set maximal expires if session=false
+            if (!isset($cookie['expires']) && ($cookie['session'] ?? null) === false) {
+                $browserCookie['expires'] = \time() + self::MAX_COOKIE_AGE;
+            }
+
             $browserCookies[] = $browserCookie;
         }
 
@@ -979,6 +1121,23 @@ class Page
             ->sendMessage(
                 new Message('Network.setUserAgentOverride', ['userAgent' => $userAgent])
             );
+
+        return new ResponseWaiter($response);
+    }
+
+    /**
+     * Disable or enable JavaScript execution for the current page.
+     *
+     * @throws CommunicationException
+     */
+    public function setScriptExecution(bool $enabled): ResponseWaiter
+    {
+        // ensure target is not closed
+        $this->assertNotClosed();
+
+        $response = $this->getSession()->sendMessage(
+            new Message('Emulation.setScriptExecutionDisabled', ['value' => !$enabled])
+        );
 
         return new ResponseWaiter($response);
     }

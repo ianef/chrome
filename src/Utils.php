@@ -13,6 +13,9 @@ namespace HeadlessChromium;
 
 use HeadlessChromium\Communication\Connection;
 use HeadlessChromium\Communication\Message;
+use HeadlessChromium\Dom\Selector\Selector;
+use HeadlessChromium\Exception\CommunicationException;
+use HeadlessChromium\Exception\JavascriptException;
 use HeadlessChromium\Exception\OperationTimedOut;
 
 class Utils
@@ -50,7 +53,7 @@ class Utils
      *
      * @return mixed
      */
-    public static function tryWithTimeout(int $timeoutMicroSec, \Generator $generator, callable $onTimeout = null)
+    public static function tryWithTimeout(int $timeoutMicroSec, \Generator $generator, ?callable $onTimeout = null)
     {
         $waitUntilMicroSec = \hrtime(true) / 1000 + $timeoutMicroSec;
 
@@ -89,5 +92,26 @@ class Utils
                 }
             }
         }
+    }
+
+    /**
+     * @throws CommunicationException
+     * @throws Exception\EvaluationFailed
+     * @throws JavascriptException
+     *
+     * @return mixed
+     */
+    public static function getElementPositionFromPage(Page $page, Selector $selector, int $position = 1)
+    {
+        $elementCount = $page
+            ->evaluate(\sprintf('JSON.parse(JSON.stringify(%s));', $selector->expressionCount()))
+            ->getReturnValue();
+
+        $position = \max(1, $position);
+        $position = \min($position, $elementCount);
+
+        return $page
+            ->evaluate(\sprintf('JSON.parse(JSON.stringify(%s.getBoundingClientRect()));', $selector->expressionFindOne($position)))
+            ->getReturnValue();
     }
 }

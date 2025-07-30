@@ -31,9 +31,9 @@ class CookiesCollectionTest extends TestCase
 
         $newCookies = $cookies->filterBy('name', 'foo');
 
-        $this->assertCount(2, $newCookies);
-        $this->assertEquals('bar', $newCookies->getAt(0)->getValue());
-        $this->assertEquals('baz', $newCookies->getAt(1)->getValue());
+        self::assertCount(2, $newCookies);
+        self::assertSame('bar', $newCookies->getAt(0)->getValue());
+        self::assertSame('baz', $newCookies->getAt(1)->getValue());
     }
 
     public function testFindOneBy(): void
@@ -47,7 +47,7 @@ class CookiesCollectionTest extends TestCase
         $cookieFoo = $cookies->findOneBy('name', 'foo');
         $cookieQux = $cookies->findOneBy('name', 'qux');
 
-        $this->assertEquals('bar', $cookieFoo->getValue());
-        $this->assertEquals('quux', $cookieQux->getValue());
+        self::assertSame('bar', $cookieFoo->getValue());
+        self::assertSame('quux', $cookieQux->getValue());
     }
 }

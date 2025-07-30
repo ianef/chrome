@@ -23,10 +23,7 @@ use HeadlessChromium\Cookies\CookiesCollection;
  */
 class CookieTest extends HttpEnabledTestCase
 {
-    /**
-     * @var Browser\ProcessAwareBrowser
-     */
-    public static $browser;
+    public static Browser\ProcessAwareBrowser $browser;
 
     public function setUp(): void
     {
@@ -56,11 +53,11 @@ class CookieTest extends HttpEnabledTestCase
 
         $cookies = $page->getCookies();
 
-        $this->assertInstanceOf(CookiesCollection::class, $cookies);
-        $this->assertCount(1, $cookies);
+        self::assertInstanceOf(CookiesCollection::class, $cookies);
+        self::assertCount(1, $cookies);
 
-        $this->assertEquals($cookies->getAt(0)->getName(), 'foo');
-        $this->assertEquals($cookies->getAt(0)->getValue(), 'bar');
+        self::assertSame('foo', $cookies->getAt(0)->getName());
+        self::assertSame('bar', $cookies->getAt(0)->getValue());
     }
 
     public function testGetAllCookies(): void
@@ -70,11 +67,11 @@ class CookieTest extends HttpEnabledTestCase
 
         $cookies = $page->getAllCookies();
 
-        $this->assertInstanceOf(CookiesCollection::class, $cookies);
-        $this->assertCount(1, $cookies);
+        self::assertInstanceOf(CookiesCollection::class, $cookies);
+        self::assertCount(1, $cookies);
 
-        $this->assertEquals($cookies->getAt(0)->getName(), 'foo');
-        $this->assertEquals($cookies->getAt(0)->getValue(), 'bar');
+        self::assertSame('foo', $cookies->getAt(0)->getName());
+        self::assertSame('bar', $cookies->getAt(0)->getValue());
     }
 
     public function testSetCookies(): void
@@ -92,12 +89,12 @@ class CookieTest extends HttpEnabledTestCase
 
         $cookies = $page->getAllCookies();
 
-        $this->assertInstanceOf(CookiesCollection::class, $cookies);
-        $this->assertCount(1, $cookies);
+        self::assertInstanceOf(CookiesCollection::class, $cookies);
+        self::assertCount(1, $cookies);
 
-        $this->assertEquals($cookies->getAt(0)->getName(), 'baz');
-        $this->assertEquals($cookies->getAt(0)->getValue(), 'qux');
-        $this->assertEquals($cookies->getAt(0)->getDomain(), 'foo.bar');
+        self::assertSame('baz', $cookies->getAt(0)->getName());
+        self::assertSame('qux', $cookies->getAt(0)->getValue());
+        self::assertSame('foo.bar', $cookies->getAt(0)->getDomain());
 
         // Set cookie for current page
         $page->navigate(self::sitePath('a.html'))->waitForNavigation();
@@ -108,15 +105,15 @@ class CookieTest extends HttpEnabledTestCase
 
         $cookies = $page->getAllCookies();
 
-        $this->assertInstanceOf(CookiesCollection::class, $cookies);
-        $this->assertCount(2, $cookies);
+        self::assertInstanceOf(CookiesCollection::class, $cookies);
+        self::assertCount(2, $cookies);
 
-        $this->assertEquals($cookies->getAt(1)->getName(), 'quux');
-        $this->assertEquals($cookies->getAt(1)->getValue(), 'corge');
-        $this->assertEquals($cookies->getAt(1)->getDomain(), 'localhost');
+        self::assertSame('quux', $cookies->getAt(1)->getName());
+        self::assertSame('corge', $cookies->getAt(1)->getValue());
+        self::assertSame('localhost', $cookies->getAt(1)->getDomain());
 
-        $this->assertEquals($cookies->getAt(0)->getName(), 'baz');
-        $this->assertEquals($cookies->getAt(0)->getValue(), 'qux');
-        $this->assertEquals($cookies->getAt(0)->getDomain(), 'foo.bar');
+        self::assertSame('baz', $cookies->getAt(0)->getName());
+        self::assertSame('qux', $cookies->getAt(0)->getValue());
+        self::assertSame('foo.bar', $cookies->getAt(0)->getDomain());
     }
 }

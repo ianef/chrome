@@ -1,0 +1,25 @@
+<html>
+<head>
+    <title>a - test</title>
+</head>
+<body>
+<h1>page a</h1>
+<div>a</div>
+</body>
+<script>
+    setTimeout(() => {
+      let el = document.createElement('div');
+
+      el.dataset.name = 'el';
+      el.innerHTML = 'content1';
+
+      document.body.appendChild(el)
+
+      let el2 = document.createElement('div');
+
+      el2.dataset.name = '"el"';
+      el2.innerHTML = 'content2';
+      document.body.appendChild(el2)
+    }, 500)
+</script>
+</html>

@@ -13,9 +13,11 @@ namespace HeadlessChromium\Communication;
 
 use Evenement\EventEmitter;
 use HeadlessChromium\Communication\Socket\SocketInterface;
+use HeadlessChromium\Communication\Socket\WaitForDataInterface;
 use HeadlessChromium\Communication\Socket\Wrench;
 use HeadlessChromium\Exception\CommunicationException;
 use HeadlessChromium\Exception\CommunicationException\CannotReadResponse;
+use HeadlessChromium\Exception\CommunicationException\CantSyncEventsException;
 use HeadlessChromium\Exception\CommunicationException\InvalidResponse;
 use HeadlessChromium\Exception\OperationTimedOut;
 use HeadlessChromium\Exception\TargetDestroyed;
@@ -96,7 +98,7 @@ class Connection extends EventEmitter implements LoggerAwareInterface
      * @param SocketInterface|string $socketClient
      * @param int|null               $sendSyncDefaultTimeout
      */
-    public function __construct($socketClient, LoggerInterface $logger = null, int $sendSyncDefaultTimeout = null)
+    public function __construct($socketClient, ?LoggerInterface $logger = null, ?int $sendSyncDefaultTimeout = null)
     {
         // set or create logger
         $this->setLogger($logger ?? new NullLogger());
@@ -264,10 +266,10 @@ class Connection extends EventEmitter implements LoggerAwareInterface
      *
      * @return Response
      */
-    public function sendMessageSync(Message $message, int $timeout = null): Response
+    public function sendMessageSync(Message $message, ?int $timeout = null): Response
     {
         $responseReader = $this->sendMessage($message);
-        $response = $responseReader->waitForResponse($timeout ?? $this->sendSyncDefaultTimeout);
+        $response = $responseReader->waitForResponse($timeout);
 
         return $response;
     }
@@ -275,19 +277,22 @@ class Connection extends EventEmitter implements LoggerAwareInterface
     /**
      * Create a session for the given target id.
      *
-     * @param string $targetId
+     * @param string  $targetId
+     * @param ?string $sessionId
      *
      * @return Session
      */
-    public function createSession($targetId): Session
+    public function createSession($targetId, $sessionId = null): Session
     {
-        $response = $this->sendMessageSync(
-            new Message('Target.attachToTarget', ['targetId' => $targetId])
-        );
-        if (empty($response['result'])) {
-            throw new TargetDestroyed('The target was destroyed.');
+        if (null === $sessionId) {
+            $response = $this->sendMessageSync(
+                new Message('Target.attachToTarget', ['targetId' => $targetId, 'flatten' => true])
+            );
+            if (empty($response['result'])) {
+                throw new TargetDestroyed('The target was destroyed.');
+            }
+            $sessionId = $response['result']['sessionId'];
         }
-        $sessionId = $response['result']['sessionId'];
         $session = new Session($targetId, $sessionId, $this);
 
         $this->sessions[$sessionId] = $session;
@@ -343,6 +348,19 @@ class Connection extends EventEmitter implements LoggerAwareInterface
         return false;
     }
 
+    public function processAllEvents(): void
+    {
+        if (false === $this->wsClient instanceof WaitForDataInterface) {
+            throw new CantSyncEventsException();
+        }
+
+        $hasData = $this->wsClient->waitForData(0);
+
+        if ($hasData) {
+            $this->receiveData();
+        }
+    }
+
     /**
      * Dispatches the message and either stores the response or emits an event.
      *
@@ -352,7 +370,7 @@ class Connection extends EventEmitter implements LoggerAwareInterface
      *
      * @internal
      */
-    private function dispatchMessage(string $message, Session $session = null)
+    private function dispatchMessage(string $message, ?Session $session = null)
     {
         // responses come as json string
         $response = \json_decode($message, true);
@@ -384,6 +402,9 @@ class Connection extends EventEmitter implements LoggerAwareInterface
 
                     return $this->dispatchMessage($response['params']['message'], $session);
                 } else {
+                    if (!$session && isset($response['sessionId'])) {
+                        $session = $this->sessions[$response['sessionId']] ?? null;
+                    }
                     if ($session) {
                         $this->logger->debug(
                             'session('.$session->getSessionId().'): ⇶ dispatching method:'.$response['method']
@@ -438,5 +459,15 @@ class Connection extends EventEmitter implements LoggerAwareInterface
         }
 
         return null;
+    }
+
+    /**
+     * @param string $sessionId
+     *
+     * @return bool
+     */
+    public function isSessionDestroyed($sessionId)
+    {
+        return !isset($this->sessions[$sessionId]);
     }
 }

@@ -10,7 +10,7 @@ Can be used synchronously and asynchronously!
 
 ## Features
 
-- Open chrome or chromium browser from php
+- Open Chrome or Chromium browser from php
 - Create pages and navigate to pages
 - Take screenshots
 - Evaluate javascript on the page
@@ -24,7 +24,7 @@ Happy browsing!
 
 ## Requirements
 
-Requires PHP 7.3-8.0 and a chrome/chromium 65+ executable.
+Requires PHP 7.4-8.4 and a Chrome/Chromium 65+ executable.
 
 Note that the library is only tested on Linux but is compatible with macOS and Windows.
 
@@ -41,14 +41,14 @@ $ composer require chrome-php/chrome
 
 ## Usage
 
-It uses a simple and understandable API to start chrome, to open pages, take screenshots, crawl websites... and almost everything that you can do with chrome as a human.
+It uses a simple and understandable API to start Chrome, to open pages, take screenshots, crawl websites... and almost everything that you can do with Chrome as a human.
 
 ```php
 use HeadlessChromium\BrowserFactory;
 
 $browserFactory = new BrowserFactory();
 
-// starts headless chrome
+// starts headless Chrome
 $browser = $browserFactory->createBrowser();
 
 try {
@@ -70,9 +70,9 @@ try {
 }
 ```
 
-### Using different chrome executable
+### Using different Chrome executable
 
-When starting, the factory will look for the environment variable ``"CHROME_PATH"`` to use as the chrome executable.
+When starting, the factory will look for the environment variable ``"CHROME_PATH"`` to use as the Chrome executable.
 If the variable is not found, it will try to guess the correct executable path according to your OS or use ``"chrome"`` as the default.
 
 You are also able to explicitly set up any executable of your choice when creating a new object. For instance ``"chromium-browser"``:
@@ -102,7 +102,7 @@ Other debug options:
 
 ```php
 [
-    'connectionDelay' => 0.8,            // add 0.8 second of delay between each instruction sent to chrome,
+    'connectionDelay' => 0.8,            // add 0.8 second of delay between each instruction sent to Chrome,
     'debugLogger'     => 'php://stdout', // will enable verbose mode
 ]
 ```
@@ -157,24 +157,59 @@ $browser4 = $browserFactory->createBrowser();
 
 Here are the options available for the browser factory:
 
-| Option name               | Default | Description                                                                                  |
-|---------------------------|---------|----------------------------------------------------------------------------------------------|
-| `connectionDelay`         | `0`     | Delay to apply between each operation for debugging purposes                                 |
-| `customFlags`             | none    | An array of flags to pass to the command line. Eg: `['--option1', '--option2=someValue']`    |
-| `debugLogger`             | `null`  | A string (e.g "php://stdout"), or resource, or PSR-3 logger instance to print debug messages |
-| `enableImages`            | `true`  | Toggles loading of images                                                                    |
-| `envVariables`            | none    | An array of environment variables to pass to the process (example DISPLAY variable)          |
-| `headers`                 | none    | An array of custom HTTP headers                                                              |
-| `headless`                | `true`  | Enable or disable headless mode                                                              |
-| `ignoreCertificateErrors` | `false` | Set chrome to ignore ssl errors                                                              |
-| `keepAlive`               | `false` | Set to `true` to keep alive the chrome instance when the script terminates                   |
-| `noSandbox`               | `false` | Enable no sandbox mode, useful to run in a docker container                                  |
-| `proxyServer`             | none    | Proxy server to use. usage: `127.0.0.1:8080` (authorisation with credentials does not work)  |
-| `sendSyncDefaultTimeout`  | `5000`  | Default timeout (ms) for sending sync messages                                               |
-| `startupTimeout`          | `30`    | Maximum time in seconds to wait for chrome to start                                          |
-| `userAgent`               | none    | User agent to use for the whole browser (see page API for alternative)                       |
-| `userDataDir`             | none    | Chrome user data dir (default: a new empty dir is generated temporarily)                     |
-| `windowSize`              | none    | Size of the window. usage: `$width, $height` - see also Page::setViewport                    |
+| Option name               | Default | Description                                                                                        |
+|---------------------------|---------|----------------------------------------------------------------------------------------------------|
+| `connectionDelay`         | `0`     | Delay to apply between each operation for debugging purposes                                       |
+| `customFlags`             | none    | An array of flags to pass to the command line. Eg: `['--option1', '--option2=someValue']`          |
+| `debugLogger`             | `null`  | A string (e.g "php://stdout"), or resource, or PSR-3 logger instance to print debug messages       |
+| `disableNotifications`    | `false` | Disable browser notifications                                                                      |
+| `enableImages`            | `true`  | Toggles loading of images                                                                          |
+| `envVariables`            | none    | An array of environment variables to pass to the process (example DISPLAY variable)                |
+| `headers`                 | none    | An array of custom HTTP headers                                                                    |
+| `headless`                | `true`  | Enable or disable headless mode                                                                    |
+| `ignoreCertificateErrors` | `false` | Set Chrome to ignore SSL errors                                                                    |
+| `keepAlive`               | `false` | Set to `true` to keep alive the Chrome instance when the script terminates                         |
+| `noSandbox`               | `false` | Enable no sandbox mode, useful to run in a docker container                                        |
+| `noProxyServer`           | `false` | Don't use a proxy server, always make direct connections. Overrides other proxy settings.          |
+| `proxyBypassList`         | none    | Specifies a list of hosts for whom we bypass proxy settings and use direct connections             |
+| `proxyServer`             | none    | Proxy server to use. usage: `127.0.0.1:8080` (authorisation with credentials does not work)        |
+| `sendSyncDefaultTimeout`  | `5000`  | Default timeout (ms) for sending sync messages                                                     |
+| `startupTimeout`          | `30`    | Maximum time in seconds to wait for Chrome to start                                                |
+| `userAgent`               | none    | User agent to use for the whole browser (see page API for alternative)                             |
+| `userDataDir`             | none    | Chrome user data dir (default: a new empty dir is generated temporarily)                           |
+| `userCrashDumpsDir`       | none    | The directory crashpad should store dumps in (crash reporter will be enabled automatically)        |
+| `windowSize`              | none    | Size of the window. usage: `$width, $height` - see also Page::setViewport                          |
+| `excludedSwitches`        | none    | An array of Chrome flags that should be removed from the default set (example --enable-automation) |
+
+
+### Persistent Browser
+
+This example shows how to share a single instance of Chrome for multiple scripts.
+
+The first time the script is started we use the browser factory in order to start Chrome, afterwards we save the uri to connect to this browser in the file system.
+
+The next calls to the script will read the uri from that file in order to connect to the Chrome instance instead of creating a new one. If Chrome was closed or crashed, a new instance is started again.
+
+```php
+use \HeadlessChromium\BrowserFactory;
+use \HeadlessChromium\Exception\BrowserConnectionFailed;
+
+// path to the file to store websocket's uri
+$socket = \file_get_contents('/tmp/chrome-php-demo-socket');
+
+try {
+    $browser = BrowserFactory::connectToBrowser($socket);
+} catch (BrowserConnectionFailed $e) {
+    // The browser was probably closed, start it again
+    $factory = new BrowserFactory();
+    $browser = $factory->createBrowser([
+        'keepAlive' => true,
+    ]);
+
+    // save the uri to be able to connect again to browser
+    \file_put_contents($socketFile, $browser->getSocketUri(), LOCK_EX);
+}
+```
 
 ### Browser API
 
@@ -182,6 +217,12 @@ Here are the options available for the browser factory:
 
 ```php
 $page = $browser->createPage();
+```
+
+#### Get opened pages (tabs)
+
+```php
+$pages = $browser->getPages();
 ```
 
 #### Close the browser
@@ -218,6 +259,8 @@ When using ``$navigation->waitForNavigation()`` you will wait for 30sec until th
 You can change the timeout or the event to listen for:
 
 ```php
+use HeadlessChromium\Page;
+
 // wait 10secs for the event "DOMContentLoaded" to be triggered
 $navigation->waitForNavigation(Page::DOM_CONTENT_LOADED, 10000);
 ```
@@ -225,6 +268,12 @@ $navigation->waitForNavigation(Page::DOM_CONTENT_LOADED, 10000);
 Available events (in the order they trigger):
 
 - ``Page::DOM_CONTENT_LOADED``: dom has completely loaded
+- ``Page::FIRST_CONTENTFUL_PAINT``: triggered when the first non-white content element is painted on the screen
+- ``Page::FIRST_IMAGE_PAINT``: triggered when the first image is painted on the screen
+- ``Page::FIRST_MEANINGFUL_PAINT``: triggered when the primary content of a page is visible to the user
+- ``Page::FIRST_PAINT``: triggered when any pixel on the screen is painted, including the browser's default background color
+- ``Page::INIT``: connection to DevTools protocol is initialized
+- ``Page::INTERACTIVE_TIME``: scripts have finished loading and the main thread is no longer blocked by rendering or other tasks
 - ``Page::LOAD``: (default) page and all resources are loaded
 - ``Page::NETWORK_IDLE``: page has loaded, and no network activity has occurred for at least 500ms
 
@@ -305,6 +354,22 @@ $page->addScriptTag([
 $page->evaluate('$(".my.element").html()');
 ```
 
+#### Set the page HTML
+
+You can manually inject html to a page using the ```setHtml``` method.
+
+```php
+// Basic
+$page->setHtml('<p>text</p>');
+
+// Specific timeout & event
+$page->setHtml('<p>text</p>', 10000, Page::NETWORK_IDLE);
+```
+
+When a page's HTML is updated, we'll wait for the page to unload. You can specify how long to wait and which event to wait for through two optional parameters. This defaults to 3000ms and the "load" event.
+
+Note that this method will not append to the current page HTML, it will completely replace it.
+
 #### Get the page HTML
 
 You can get the page HTML as a string using the ```getHtml``` method.
@@ -354,8 +419,9 @@ $navigation->waitForNavigation();
 
 // take a screenshot
 $screenshot = $page->screenshot([
-    'format'  => 'jpeg',  // default to 'png' - possible values: 'png', 'jpeg',
-    'quality' => 80,      // only if format is 'jpeg' - default 100
+    'format'  => 'jpeg',  // default to 'png' - possible values: 'png', 'jpeg', 'webp'
+    'quality' => 80,      // only when format is 'jpeg' or 'webp' - default 100
+    'optimizeForSpeed' => true // default to 'false' - Optimize image encoding for speed, not for resulting size
 ]);
 
 // save the screenshot
@@ -405,7 +471,7 @@ $navigation->waitForNavigation();
 $screenshot = $page->screenshot([
     'captureBeyondViewport' => true,
     'clip' => $page->getFullPageClip(),
-    'format' => 'jpeg', // default to 'png' - possible values: 'png', 'jpeg',
+    'format' => 'jpeg', // default to 'png' - possible values: 'png', 'jpeg', 'webp'
 ]);
 
 // save the screenshot
@@ -431,7 +497,7 @@ $options = [
     'marginLeft'          => 5.0,              // defaults to ~0.4 (must be a float, value in inches)
     'marginRight'         => 1.0,              // defaults to ~0.4 (must be a float, value in inches)
     'paperWidth'          => 6.0,              // defaults to 8.5 (must be a float, value in inches)
-    'paperHeight'         => 6.0,              // defaults to 8.5 (must be a float, value in inches)
+    'paperHeight'         => 6.0,              // defaults to 11.0 (must be a float, value in inches)
     'headerTemplate'      => '<div>foo</div>', // see details above
     'footerTemplate'      => '<div>foo</div>', // see details above
     'scale'               => 1.2,              // defaults to 1.0 (must be a float)
@@ -455,7 +521,7 @@ header('Pragma: public');
 echo base64_decode($pdf->getBase64());
 ```
 
-Options `headerTempalte` and `footerTempalte`:
+Options `headerTemplate` and `footerTemplate`:
 
 Should be valid HTML markup with the following classes used to inject printing values into them:
 - date: formatted print date
@@ -575,7 +641,7 @@ $page = $browser->createPage();
 $page->setCookies([
     Cookie::create('name', 'value', [
         'domain' => 'example.com',
-        'expires' => time() + 3600 // expires in 1 day
+        'expires' => time() + 3600 // expires in 1 hour
     ])
 ])->await();
 
@@ -630,7 +696,7 @@ Advanced usage
 --------------
 
 The library ships with tools that hide all the communication logic but you can use the tools used internally to
-communicate directly with chrome debug protocol.
+communicate directly with Chrome debug protocol.
 
 Example:
 
@@ -638,7 +704,7 @@ Example:
 use HeadlessChromium\Communication\Connection;
 use HeadlessChromium\Communication\Message;
 
-// chrome devtools URI
+// Chrome devtools URI
 $webSocketUri = 'ws://127.0.0.1:9222/devtools/browser/xxx';
 
 // create a connection
@@ -679,7 +745,7 @@ You can ease the debugging by setting a delay before each operation is made:
 use HeadlessChromium\Communication\Connection;
 use HeadlessChromium\Browser;
 
-// chrome devtools URI
+// Chrome devtools URI
 $webSocketUri = 'ws://127.0.0.1:9222/devtools/browser/xxx';
 
 // create connection given a WebSocket URI
@@ -717,6 +783,31 @@ $page->navigate('http://example.com')->waitForNavigation();
 $elem = $page->dom()->search('//div/*/a');
 ```
 
+Wait for an element by CSS selector:
+
+```php
+$page = $browser->createPage();
+$page->navigate('http://example.com')->waitForNavigation();
+
+$page->waitUntilContainsElement('div[data-name=\"el\"]');
+```
+
+If a string is passed to `Page::waitUntilContainsElement`, an instance of
+`CSSSelector` is created for you by `Page::waitForElement`. To use other
+selectors, you can pass an instance of the required `Selector`.
+
+Wait for element by XPath selector:
+
+```php
+use HeadlessChromium\Dom\Selector\XPathSelector;
+
+$page = $browser->createPage();
+$page->navigate('http://example.com')->waitForNavigation();
+
+$page->waitUntilContainsElement(new XPathSelector('//div[contains(text(), "content")]'));
+```
+
+
 You can send out a text to an element or click on it:
 
 ```php
@@ -727,7 +818,7 @@ $elem->sendKeys('Sample text');
 You can upload file to file from the input:
 
 ```php
-$elem->uploadFile('/path/to/file');
+$elem->sendFile('/path/to/file');
 ```
 
 You can get element text or attribute:

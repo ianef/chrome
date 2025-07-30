@@ -12,6 +12,8 @@
 namespace HeadlessChromium\Input;
 
 use HeadlessChromium\Communication\Message;
+use HeadlessChromium\Dom\Selector\CssSelector;
+use HeadlessChromium\Dom\Selector\Selector;
 use HeadlessChromium\Exception\ElementNotFoundException;
 use HeadlessChromium\Exception\JavascriptException;
 use HeadlessChromium\Page;
@@ -52,7 +54,7 @@ class Mouse
      *
      * @return $this
      */
-    public function move(int $x, int $y, array $options = null)
+    public function move(int $x, int $y, ?array $options = null)
     {
         $this->page->assertNotClosed();
 
@@ -86,7 +88,7 @@ class Mouse
      * @throws \HeadlessChromium\Exception\CommunicationException
      * @throws \HeadlessChromium\Exception\NoResponseAvailable
      */
-    public function press(array $options = null)
+    public function press(?array $options = null)
     {
         $this->page->assertNotClosed();
         $this->page->getSession()->sendMessageSync(new Message('Input.dispatchMouseEvent', [
@@ -104,7 +106,7 @@ class Mouse
      * @throws \HeadlessChromium\Exception\CommunicationException
      * @throws \HeadlessChromium\Exception\NoResponseAvailable
      */
-    public function release(array $options = null)
+    public function release(?array $options = null)
     {
         $this->page->assertNotClosed();
         $this->page->getSession()->sendMessageSync(new Message('Input.dispatchMouseEvent', [
@@ -124,7 +126,7 @@ class Mouse
      * @throws \HeadlessChromium\Exception\CommunicationException
      * @throws \HeadlessChromium\Exception\NoResponseAvailable
      */
-    public function click(array $options = null)
+    public function click(?array $options = null)
     {
         $this->press($options);
         $this->release($options);
@@ -144,7 +146,7 @@ class Mouse
      */
     public function scrollUp(int $distance)
     {
-        return $this->scroll((-1 * \abs($distance)));
+        return $this->scroll(-1 * \abs($distance));
     }
 
     /**
@@ -181,8 +183,11 @@ class Mouse
         $scrollableArea = $this->page->getLayoutMetrics()->getCssContentSize();
         $visibleArea = $this->page->getLayoutMetrics()->getCssVisualViewport();
 
-        $distanceX = $this->getMaximumDistance($distanceX, $visibleArea['pageX'], $scrollableArea['width']);
-        $distanceY = $this->getMaximumDistance($distanceY, $visibleArea['pageY'], $scrollableArea['height']);
+        $maximumX = $scrollableArea['width'] - $visibleArea['clientWidth'];
+        $maximumY = $scrollableArea['height'] - $visibleArea['clientHeight'];
+
+        $distanceX = $this->getMaximumDistance($distanceX, $visibleArea['pageX'], $maximumX);
+        $distanceY = $this->getMaximumDistance($distanceY, $visibleArea['pageY'], $maximumY);
 
         $targetX = $visibleArea['pageX'] + $distanceX;
         $targetY = $visibleArea['pageY'] + $distanceY;
@@ -218,7 +223,7 @@ class Mouse
      * @param int $right  The element right boundary
      * @param int $bottom The element bottom boundary
      *
-     * @return self
+     * @return $this
      */
     private function scrollToBoundary(int $right, int $bottom): self
     {
@@ -261,25 +266,44 @@ class Mouse
      */
     public function find(string $selectors, int $position = 1): self
     {
+        $this->findElement(new CssSelector($selectors), $position);
+
+        return $this;
+    }
+
+    /**
+     * Find an element and move the mouse to a random position over it.
+     *
+     * The search could result in several elements. The $position param can be used to select a specific element.
+     * The given position can only be between 1 and the maximum number or elements. It will be adjusted to the
+     * minimum and maximum values if needed.
+     *
+     * Example:
+     * $page->mouse()->findElement(new CssSelector('#a')):
+     * $page->mouse()->findElement(new CssSelector('.a'), 2);
+     * $page->mouse()->findElement(new XPathSelector('//*[@id="a"]'), 2);
+     *
+     * @param Selector $selector selector to use
+     * @param int      $position (optional) which element of the result set should be used
+     *
+     * @throws \HeadlessChromium\Exception\CommunicationException
+     * @throws \HeadlessChromium\Exception\NoResponseAvailable
+     * @throws \HeadlessChromium\Exception\ElementNotFoundException
+     *
+     * @return $this
+     */
+    public function findElement(Selector $selector, int $position = 1): self
+    {
         $this->page->assertNotClosed();
 
         try {
-            $elementList = $this->page
-                ->evaluate('JSON.parse(JSON.stringify(document.querySelectorAll("'.$selectors.'")));')
-                ->getReturnValue();
-
-            $position = \max(0, ($position - 1));
-            $position = \min($position, (\count($elementList) - 1));
-
-            $element = $this->page
-                ->evaluate('JSON.parse(JSON.stringify(document.querySelectorAll("'.$selectors.'")['.$position.'].getBoundingClientRect()));')
-                ->getReturnValue();
+            $element = Utils::getElementPositionFromPage($this->page, $selector, $position);
         } catch (JavascriptException $exception) {
-            throw new ElementNotFoundException('The search for "'.$selectors.'" returned no elements.');
+            throw new ElementNotFoundException('The search for "'.$selector->expressionCount().'" returned no result.');
         }
 
         if (false === \array_key_exists('x', $element)) {
-            throw new ElementNotFoundException('The search for "'.$selectors.'" returned an element with no position.');
+            throw new ElementNotFoundException('The search for "'.$selector->expressionFindOne($position).'" returned an element with no position.');
         }
 
         $rightBoundary = \floor($element['right']);
@@ -291,8 +315,11 @@ class Mouse
 
         $offsetX = $visibleArea['pageX'];
         $offsetY = $visibleArea['pageY'];
-        $positionX = \random_int(\ceil($element['left'] - $offsetX), $rightBoundary - $offsetX);
-        $positionY = \random_int(\ceil($element['top'] - $offsetY), $bottomBoundary - $offsetY);
+        $minX = $element['left'] - $offsetX;
+        $minY = $element['top'] - $offsetY;
+
+        $positionX = \floor($minX + (($rightBoundary - $offsetX) - $minX) / 2);
+        $positionY = \ceil($minY + (($bottomBoundary - $offsetY) - $minY) / 2);
 
         $this->move($positionX, $positionY);
 
@@ -304,7 +331,7 @@ class Mouse
      *
      * @param int $distance Distance to scroll, positive or negative
      * @param int $current  Current position
-     * @param int $maximum  Maximum posible distance
+     * @param int $maximum  Maximum possible distance
      *
      * @return int allowed distance to scroll
      */
